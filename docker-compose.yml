@@ -1,0 +1,60 @@
+version: "3.7"
+
+services:
+  backend:
+    image: rueian/argo-test-backend:latest
+    build:
+      context: backend
+
+  envoy:
+    image: envoyproxy/envoy-alpine:v1.12.1
+    volumes:
+      - ./envoy:/etc/envoy
+    ports:
+      - 10001:10001
+    networks:
+      default:
+        aliases:
+          - envoyadmin
+
+  tunnel:
+    image: rueian/argo-test-tunnel:latest
+    build:
+      context: tunnel
+    command:
+      - "cloudflared"
+      - "tunnel"
+      - "--url=https://envoy"
+      - "--hostname=${TUNNEL_HOSTNAME}"
+      - "--origincert=/etc/cloudflared/cert.pem"
+      - "--no-autoupdate"
+      - "--no-tls-verify"
+      - "--metrics=0.0.0.0:8888"
+    volumes:
+      - ~/.cloudflared:/etc/cloudflared
+
+  prometheus:
+    image: prom/prometheus:v2.14.0
+    volumes:
+      - ./prom:/etc/prometheus
+    ports:
+      - 9090:9090
+
+  grafana:
+    image: rueian/argo-test-grafana:latest
+    build:
+      context: ./grafana
+    ports:
+      - 3000:3000
+    volumes:
+      - ./grafana:/var/lib/grafana
+
+  client:
+    image: rueian/argo-test-client:latest
+    build:
+      context: ./client
+    volumes:
+      - ./client:/client
+
+networks:
+  default:

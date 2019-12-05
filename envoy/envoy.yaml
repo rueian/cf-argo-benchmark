@@ -1,0 +1,61 @@
+admin:
+  access_log_path: /dev/null
+  address:
+    socket_address:
+      address: 0.0.0.0
+      port_value: 10001
+static_resources:
+  listeners:
+    - name: listener_http
+      address:
+        socket_address:
+          address: 0.0.0.0
+          port_value: 80
+      filter_chains:
+        - filters:
+            - name: envoy.http_connection_manager
+              typed_config:
+                '@type': type.googleapis.com/envoy.config.filter.network.http_connection_manager.v2.HttpConnectionManager
+                http_filters:
+                  - name: envoy.router
+                stat_prefix: ingress_http
+                codec_type: AUTO
+                rds:
+                  route_config_name: local_route
+                  config_source:
+                    path: /etc/envoy/rds.yaml
+    - name: listener_https
+      address:
+        socket_address:
+          address: 0.0.0.0
+          port_value: 443
+      filter_chains:
+        - transport_socket:
+            name: tls
+            typed_config:
+              '@type': type.googleapis.com/envoy.api.v2.auth.DownstreamTlsContext
+              common_tls_context:
+                alpn_protocols: ["h2,http/1.1"]
+                tls_certificates:
+                  - certificate_chain:
+                      filename: /etc/envoy/server.crt
+                    private_key:
+                      filename: /etc/envoy/server.key
+          filters:
+            - name: envoy.http_connection_manager
+              typed_config:
+                '@type': type.googleapis.com/envoy.config.filter.network.http_connection_manager.v2.HttpConnectionManager
+                http_filters:
+                  - name: envoy.router
+                stat_prefix: ingress_https
+                codec_type: AUTO
+                rds:
+                  route_config_name: local_route
+                  config_source:
+                    path: /etc/envoy/rds.yaml
+dynamic_resources:
+  cds_config:
+    path: /etc/envoy/cds.yaml
+node:
+  cluster: internal-lb
+  id: internal-lb-envoy

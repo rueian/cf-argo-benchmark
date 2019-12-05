@@ -1,0 +1,12 @@
+resources:
+  - '@type': type.googleapis.com/envoy.api.v2.RouteConfiguration
+    name: local_route
+    virtual_hosts:
+      - name: backend
+        domains:
+          - "*"
+        routes:
+          - match:
+              prefix: /
+            route:
+              cluster: backend

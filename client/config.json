@@ -1,0 +1,14 @@
+{
+  "Endpoints": {
+    "/healthz": 1,
+    "/index.html": 1,
+    "/comments.json": 1,
+    "/posts.json": 1,
+    "/forums.json": 1,
+    "/post.json": 1
+  },
+  "Hosts": [
+    "https://envoy"
+  ],
+  "Sleep": 0
+}

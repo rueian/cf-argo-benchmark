@@ -1,0 +1,512 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: envoy
+  labels:
+    name: envoy
+data:
+  cds.yaml: |
+    resources:
+      - '@type': type.googleapis.com/envoy.api.v2.Cluster
+        name: backend
+        type: STRICT_DNS
+        connect_timeout: 1s
+        dns_lookup_family: V4_ONLY
+        load_assignment:
+          cluster_name: backend
+          endpoints:
+            - lb_endpoints:
+                - endpoint:
+                    address:
+                      socket_address:
+                        address: backend
+                        port_value: 3000
+  envoy.yaml: |
+    admin:
+      access_log_path: /dev/null
+      address:
+        socket_address:
+          address: 0.0.0.0
+          port_value: 10001
+    static_resources:
+      listeners:
+        - name: listener_http
+          address:
+            socket_address:
+              address: 0.0.0.0
+              port_value: 80
+          filter_chains:
+            - filters:
+                - name: envoy.http_connection_manager
+                  typed_config:
+                    '@type': type.googleapis.com/envoy.config.filter.network.http_connection_manager.v2.HttpConnectionManager
+                    http_filters:
+                      - name: envoy.router
+                    stat_prefix: ingress_http
+                    codec_type: AUTO
+                    rds:
+                      route_config_name: local_route
+                      config_source:
+                        path: /etc/envoy/rds.yaml
+        - name: listener_https
+          address:
+            socket_address:
+              address: 0.0.0.0
+              port_value: 443
+          filter_chains:
+            - transport_socket:
+                name: tls
+                typed_config:
+                  '@type': type.googleapis.com/envoy.api.v2.auth.DownstreamTlsContext
+                  common_tls_context:
+                    alpn_protocols: ["h2,http/1.1"]
+                    tls_certificates:
+                      - certificate_chain:
+                          filename: /etc/cert/tls.crt
+                        private_key:
+                          filename: /etc/cert/tls.key
+              filters:
+                - name: envoy.http_connection_manager
+                  typed_config:
+                    '@type': type.googleapis.com/envoy.config.filter.network.http_connection_manager.v2.HttpConnectionManager
+                    http_filters:
+                      - name: envoy.router
+                    stat_prefix: ingress_https
+                    codec_type: AUTO
+                    rds:
+                      route_config_name: local_route
+                      config_source:
+                        path: /etc/envoy/rds.yaml
+    dynamic_resources:
+      cds_config:
+        path: /etc/envoy/cds.yaml
+    node:
+      cluster: internal-lb
+      id: internal-lb-envoy
+  rds.yaml: |
+    resources:
+      - '@type': type.googleapis.com/envoy.api.v2.RouteConfiguration
+        name: local_route
+        virtual_hosts:
+          - name: backend
+            domains:
+              - "*"
+            routes:
+              - match:
+                  prefix: /
+                route:
+                  cluster: backend
+---
+apiVersion: v1
+kind: Secret
+type: kubernetes.io/tls
+metadata:
+  name: self-signed-cert
+data:
+  tls.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUN0akNDQVo0Q0NRRDJXeUpIak0rUk1qQU5CZ2txaGtpRzl3MEJBUXNGQURBZE1Rc3dDUVlEVlFRR0V3SlYKVXpFT01Bd0dBMVVFQXd3RlpXNTJiM2t3SGhjTk1Ua3hNVEk0TVRnd05UTTBXaGNOTXpNd09EQTJNVGd3TlRNMApXakFkTVFzd0NRWURWUVFHRXdKVlV6RU9NQXdHQTFVRUF3d0ZaVzUyYjNrd2dnRWlNQTBHQ1NxR1NJYjNEUUVCCkFRVUFBNElCRHdBd2dnRUtBb0lCQVFDKzdCYUUxejRmZnJLMTNrOGN0cC96aFc3RUFSMjlPY1k3N2FyRkI0eWEKVGZ5ZjllQ3B3KzNVdWsrYi9qU3Q3bUQzLzBhbnMrdVhiMHhuMmhZMzhRcnVWMEp2VG56d2RVZHMrQXNybnZJQQowYkRqYXEzQU0xM2d6bU5UZjNKWXoxMEhYWFNlN0twYTQ3NVA1VW0zenJ4SHhyN2JoU0YvSmNiSDVkVnU1cWN3CnQzd3lyQ1NsckI0YVlaSGtPcEFuYWs4K1JodlM1dXFOY0FKbG85c0dzd0Q3QnZ3ZGdxK25DMkk1clF3MHlmdHQKYjNXSGtrelp0aWJLVFpyMVdUSVFBTmVuYU9SSDhIZmZ1d01HTTJiRTdpNnRNNk5HQ3FwTjMva0hVK3dhVkhBcwpSZXFHUjQ2US9uTlVUUUEzT1hBM1RZOXRXUllkSE9hWG1WQ05FR0dYOTdYTEFnTUJBQUV3RFFZSktvWklodmNOCkFRRUxCUUFEZ2dFQkFFZ3JmM2dVT2FpQUFjK2NxSzVTR1BuODVNQ3JrWHhxWEkzLytCL0k4SXB1a2UxZ0Vtd2kKOUszbDRNOUE4UEd5RGpxVVRKSmVjV2llSTJRV2x2cHk5b0s2SlVOK2ltTXRZMGV0TVA1LytUZWY0MlhFaHNWYQpxU2dyanErTWNDSDVqRmVMaXIwQXFaSGp5UTJCOHY4d2FkeHNPWXR6V29HYkZ3TkROWFhpMUVsSTdCTDZrbkpNCjNEZG4yU1dOdURMYUErUlBObGN1Sm1wY0FpQ0EwaFExRWxTNmY2THlyYkdvVnBnbVo1Tm13cUZFSDFwcCtkbHEKUCtFWUVMc0dkTW9iblZ0Yzdvc0YvMHAwVklqdkhsTXpXcTM3cnB2NXJPSE1Qd0JnY1BCOUNROVpaeWtSS1FtVApaOTdjMERSUzl3Y0E5SVRqZ052RnpIN2VpNlhYZ0M3Y0pqZz0KLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQo=
+  tls.key: LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFcEFJQkFBS0NBUUVBdnV3V2hOYytIMzZ5dGQ1UEhMYWY4NFZ1eEFFZHZUbkdPKzJxeFFlTW1rMzhuL1hnCnFjUHQxTHBQbS80MHJlNWc5LzlHcDdQcmwyOU1aOW9XTi9FSzdsZENiMDU4OEhWSGJQZ0xLNTd5QU5HdzQycXQKd0ROZDRNNWpVMzl5V005ZEIxMTBudXlxV3VPK1QrVkp0ODY4UjhhKzI0VWhmeVhHeCtYVmJ1YW5NTGQ4TXF3awpwYXdlR21HUjVEcVFKMnBQUGtZYjB1YnFqWEFDWmFQYkJyTUErd2I4SFlLdnB3dGlPYTBNTk1uN2JXOTFoNUpNCjJiWW15azJhOVZreUVBRFhwMmprUi9CMzM3c0RCak5teE80dXJUT2pSZ3FxVGQvNUIxUHNHbFJ3TEVYcWhrZU8Ka1A1elZFMEFOemx3TjAyUGJWa1dIUnptbDVsUWpSQmhsL2UxeXdJREFRQUJBb0lCQUhxV1hGOHZWVlFqcGR2Zwp3aXRObDZabEpwbnpuWVRDYytaRzFEOXVlWGthV2ZyYmhVVjc2Rm1PeDA4Q0NoRWozbDllS1ovRWhxRFZkZG00CnprdGRHZ2V2UDVqNGJJQjR6VVBLZ0dHaHpRRjVvbnBqSk8wa0RrTXFRZHg3R0pDdGxLNEY4N3VYZWtxaHNMRGMKS0ZrOUJPZVJWVHJlWUlPalhkODhVNjdCcXRnNzJrdy9qTXJ5SnZtM1FqVUdJYjBreUVLenhnZ0VSTXYyVldlbApOM0JTckUrTFBWZTRDa3JBY21DZk1RdXRSd3l1cWQwamVyRElFaHFFSktHa1JaR3d0L1hMUEV6WWhtZkpRRUVvCjVPOFpGSFpqamEwK1U0UEpzRUVVS3gzYWFTL05CTi8rSlJBZHNYVzhwY1I2azBja01MdWttdW8yMzZRUlpOVEYKZFBjU3hRRUNnWUVBK0c4YUczR3Q3WkhEVFdIa2x3SlV2b3BYQVQzOW9HemJDem8xUittbjN4aUN1UnZJd0hxOQo4ZkMzTTBCOWhabCsvdlpJZzBLVUw5YTJOUm0wK0E1cGVucU44cG0yeFlweGNVZmROOG5kNWtTTWNZK3hVd1ZaCitZMk0vWmZDemRySElXR051WGFMV0Z3TjVPaTMwWk5MVmhDVnRub2h2UHY2Qk5oOFQ1ak45VThDZ1lFQXhMeVoKZWR0cjROYXh3cFhBdGxuTlRxbHlFWFVkeGp0NkYzK1FwZytNbk9nMnM3VGt3RDBzamtJOEJMREJpckh1OXBmVAplVUtnU3Rkc0wxQXk0WDFGSnRJZHpZVFR3M1o3VzQ5ZEo2RzRFcFY2TXZrTTFBN3FoaUJrdllsWlZHS3Z0KzdJCk5TL1k2V2RTTmx3aHNiVmpCeU1DVDhjVk1IUE45c251Slh4TEVNVUNnWUVBakV1aHdMSFgrUHVDQVdjeEFoNXMKNFJXYXdMYlRUZzlyTzlIcFdPMFl3aUpEWUduU1d2QjE1L1Y2WDlVaGpacjdYdHlTWXAzc3RYOVpjbTlNQlhHTwpHMzZ1UHJ5VHZNYkwvWjhKeklHUmNJSnhsWWdDS2RJeDEzNGFpdk56TFhGSlZ3NlNUSlFuYVFURFMrd29NcEF0CjBUS1llVzVMTTBCUkZ2OXlaRGoweG4wQ2dZRUFtS3BoenBYZTJOTEJqbVgyN1lveUwyQitDOTMrQk40U21EbDkKWGQrakZmOThzMmNrTzZrODhnZWoyMS91VUZwVFBUZ0QrbzBoSmZLVkdRSDYrYy9qNFlRYmJHZ3VpL2RkTW1mRgp1Z05jZTg5U3pFdEhFU2VpQmdNTkthZHprbkFpTzNFb0cxM056UkZJVXJhYnp2TWFyV2NWWENMNDVtaDI0NU0vCklnZVptS0VDZ1lCWDhoNHdVeTB6dFN2TGdIR1JnTEtsVkozVkhGVlVGQXh4dEZxcHpHbGF1YUw1SEUzenFiMzYKMlMvWTRQY0t0MFlReXdBczdPd1JQRFVCVHd0NTAvSU1MdCtwZDRoRXFRZUpyZEtmS21KWVdmMUZkRjc2VldteQpjcXlnNmFReXQwOVdYMEZOdm04K1JrOUNFRm1jTm1LR0J2SDB3RFlHVTZpLzN1MmttY0ljWlE9PQotLS0tLUVORCBSU0EgUFJJVkFURSBLRVktLS0tLQo=
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: client
+  labels:
+    name: client
+data:
+  config.json: |
+    {
+      "Endpoints": {
+        "/healthz": 1
+      },
+      "Hosts": [
+        "https://tunnel-0{TUNNEL_DOMAIN}"
+      ],
+      "Sleep": 0
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus
+  labels:
+    name: prometheus
+data:
+  prometheus.yml: |
+    scrape_configs:
+      - job_name: 'client'
+        scrape_interval: 10s
+        dns_sd_configs:
+          - names:
+            - client
+            port: 8888
+            type: A
+      - job_name: 'envoy'
+        scrape_interval: 10s
+        metrics_path: /stats/prometheus
+        dns_sd_configs:
+          - names:
+            - envoyadmin
+            port: 10001
+            type: A
+      - job_name: 'tunnel'
+        scrape_interval: 10s
+        dns_sd_configs:
+          - names:
+            - tunnel
+            port: 8888
+            type: A
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  labels:
+    name: backend
+spec:
+  selector:
+    matchLabels:
+      name: backend
+  template:
+    metadata:
+      labels:
+        name: backend
+    spec:
+      containers:
+        - name: backend
+          image: rueian/argo-test-backend:latest
+          ports:
+            - containerPort: 3000
+          resources:
+            requests:
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+      nodeSelector:
+        'cloud.google.com/gke-nodepool': backend
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: envoy
+  labels:
+    name: envoy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: envoy
+  template:
+    metadata:
+      labels:
+        name: envoy
+    spec:
+      containers:
+        - name: envoy
+          image: envoyproxy/envoy-alpine:v1.12.1
+          ports:
+            - containerPort: 80
+            - containerPort: 443
+            - containerPort: 10001
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 80
+          volumeMounts:
+            - name: config
+              mountPath: /etc/envoy
+            - name: cert
+              mountPath: /etc/cert
+              readOnly: true
+      nodeSelector:
+        'cloud.google.com/gke-nodepool': egress
+      volumes:
+        - name: config
+          configMap:
+            name: envoy
+        - name: cert
+          secret:
+            secretName: self-signed-cert
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: client
+  labels:
+    name: client
+spec:
+  selector:
+    matchLabels:
+      name: client
+  template:
+    metadata:
+      labels:
+        name: client
+    spec:
+      containers:
+        - name: client
+          image: rueian/argo-test-client:latest
+          env:
+            - name: WORKERS
+              value: "3"
+          resources:
+            requests:
+              cpu: "1000m"
+          ports:
+            - containerPort: 8888
+          volumeMounts:
+            - name: config
+              mountPath: /client
+      nodeSelector:
+        'cloud.google.com/gke-nodepool': client
+      volumes:
+        - name: config
+          configMap:
+            name: client
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: prometheus
+  labels:
+    name: prometheus
+spec:
+  serviceName: "prometheus"
+  replicas: 1
+  selector:
+    matchLabels:
+      name: prometheus
+  template:
+    metadata:
+      labels:
+        name: prometheus
+    spec:
+      securityContext:
+        fsGroup: 2000
+        runAsUser: 1000
+        runAsNonRoot: true
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.14.0
+          ports:
+            - containerPort: 9090
+          volumeMounts:
+            - name: prometheus-data
+              mountPath: /prometheus
+            - name: config
+              mountPath: /etc/prometheus
+          resources:
+            requests:
+              cpu: "10m"
+      nodeSelector:
+        'cloud.google.com/gke-nodepool': metric
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus
+  volumeClaimTemplates:
+    - metadata:
+        name: prometheus-data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: grafana
+  labels:
+    name: grafana
+spec:
+  serviceName: "grafana"
+  replicas: 1
+  selector:
+    matchLabels:
+      name: grafana
+  template:
+    metadata:
+      labels:
+        name: grafana
+    spec:
+      securityContext:
+        fsGroup: 2000
+        runAsUser: 1000
+        runAsNonRoot: true
+      containers:
+        - name: grafana
+          image: rueian/argo-test-grafana:latest
+          volumeMounts:
+            - name: grafana-data
+              mountPath: /var/lib/grafana
+          resources:
+            requests:
+              cpu: "10m"
+      nodeSelector:
+        'cloud.google.com/gke-nodepool': metric
+  volumeClaimTemplates:
+    - metadata:
+        name: grafana-data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: tunnel
+  labels:
+    name: tunnel
+spec:
+  serviceName: "tunnel"
+  podManagementPolicy: "Parallel"
+  replicas: 1
+  selector:
+    matchLabels:
+      name: tunnel
+  template:
+    metadata:
+      labels:
+        name: tunnel
+    spec:
+      containers:
+        - name: tunnel
+          image: rueian/argo-test-tunnel:latest
+          env:
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          command: ["cloudflared", "tunnel"]
+          args: [
+            "--url=https://envoy",
+            "--hostname=$(HOSTNAME){TUNNEL_DOMAIN}",
+            "--origincert=/etc/cloudflared/cert.pem",
+            "--no-autoupdate",
+            "--no-tls-verify",
+            "--metrics=0.0.0.0:8888",
+            "--proxy-keepalive-connections=1000"
+          ]
+          ports:
+            - containerPort: 8888
+          resources:
+            requests:
+              cpu: "3000m"
+          volumeMounts:
+            - mountPath: /etc/cloudflared
+              name: tunnel-secret
+              readOnly: true
+      nodeSelector:
+        'cloud.google.com/gke-nodepool': tunnel
+      volumes:
+        - name: tunnel-secret
+          secret:
+            secretName: tunnel-crt
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: backend
+spec:
+  clusterIP: None
+  selector:
+    name: backend
+  ports:
+    - name: http
+      protocol: TCP
+      port: 3000
+      targetPort: 3000
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: client
+spec:
+  clusterIP: None
+  selector:
+    name: client
+  ports:
+    - name: http
+      protocol: TCP
+      port: 8888
+      targetPort: 8888
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: envoy
+spec:
+  type: NodePort
+  selector:
+    name: envoy
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 80
+    - name: https
+      protocol: TCP
+      port: 443
+      targetPort: 443
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: envoyadmin
+spec:
+  selector:
+    name: envoy
+  ports:
+    - name: admin
+      protocol: TCP
+      port: 10001
+      targetPort: 10001
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: prometheus
+spec:
+  selector:
+    name: prometheus
+  ports:
+    - name: http
+      protocol: TCP
+      port: 9090
+      targetPort: 9090
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: tunnel
+spec:
+  clusterIP: None
+  selector:
+    name: tunnel
+  ports:
+    - name: http
+      protocol: TCP
+      port: 8888
+      targetPort: 8888
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: envoy
+spec:
+  tls:
+    - secretName: self-signed-cert
+  rules:
+    - http:
+        paths:
+          - path: /*
+            backend:
+              serviceName: envoy
+              servicePort: 80

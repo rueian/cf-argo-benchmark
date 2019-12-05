@@ -1,0 +1,15 @@
+resources:
+  - '@type': type.googleapis.com/envoy.api.v2.Cluster
+    name: backend
+    type: STRICT_DNS
+    connect_timeout: 1s
+    dns_lookup_family: V4_ONLY
+    load_assignment:
+      cluster_name: backend
+      endpoints:
+        - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: backend
+                    port_value: 3000
