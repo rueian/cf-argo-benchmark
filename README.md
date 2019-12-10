@@ -68,7 +68,15 @@ Then, use `kube.yaml` with `{TUNNEL_DOMAIN}` substitution to deploy pods:
 cat kube.yaml | sed 's/{TUNNEL_DOMAIN}/.dcard.tw/g' | kubectl apply -f -
 ```
 
-Then, port-forward the grafana to check the dashboard:
+Then, wait all pods to be running. it can take a while for GKE node pools to scale up.
+
+Check pod status by using
+
+```shell script
+kubectl get po
+```
+
+When all pods are running, port-forward the grafana to check the dashboard:
 ```shell script
 kubectl port-forward grafana-0 3000
 ```
