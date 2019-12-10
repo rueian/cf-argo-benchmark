@@ -82,17 +82,19 @@ kubectl scale deploy client --replicas=9
 kubectl scale deploy tunnel --replicas=2
 ```
 
-You can also compare Argo Tunnel with GCP Load Balancer by changing the `Hosts` field of `client` ConfigMap in `kube.yaml` to the IP address of:
+You can also test against GCP Load Balancer directly by changing the `Hosts` field of `client` ConfigMap in `kube.yaml` to the IP address of:
 
 ```shell script
 kubectl get ingress envoy
 ```
 
+and re-apply the `kube.yaml` with `{TUNNEL_DOMAIN}` substitution again.
+
 # Test Result on GKE asia-east1-a
 
 ## 3 backend pods + 9 client pods -> direct GCP Loadbalancer
 
-10K requests/s
+10K requests/s. In this test case, the lower latency and higher throughput is expected, because the clients and the server pods are all in the GCP network.
 
 ![image](./screenshots/3-backends-9-clients-direct-gcp-loadbalancer.png)
 
